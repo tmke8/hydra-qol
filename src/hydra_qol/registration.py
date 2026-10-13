@@ -18,6 +18,8 @@ def register_hydra_config(
     main_cls: type,
     groups: dict[str, dict[str, type]],
     schema_name: str = "config_schema",
+    *,
+    replace: bool | None = None,
 ) -> None:
     """Check the given config classes and store everything in Hydra's ``ConfigStore``.
 
@@ -45,7 +47,15 @@ def register_hydra_config(
     :param schema_name: Name under which the main schema is stored. This name has to
         be passed as ``config_name`` to ``@hydra.main()`` (or it has to appear in the
         defaults list of a YAML file that is used as the primary config).
-    :raises ValueError: If the config is malformed in some way.
+    :param replace: What to do if a config with the same name is already registered in
+        the ``ConfigStore`` (this happens, for example, if this function is called
+        twice). ``True`` replaces the existing config silently, ``False`` raises a
+        :class:`ValueError`, and ``None`` (the default) leaves the decision to Hydra:
+        Hydra 1.3 replaces silently, Hydra 1.4 warns and replaces, and Hydra 1.5 will
+        raise. For a normal Hydra app, the default is the right choice, because a
+        collision usually means that something is registered twice by accident.
+    :raises ValueError: If the config is malformed in some way, or on a collision
+        with ``replace=False``.
     :raises RuntimeError: If Hydra itself is throwing an error.
 
     :example:
@@ -91,7 +101,7 @@ def register_hydra_config(
         )
 
     cs = ConfigStore.instance()
-    _compat.store(cs, node=main_cls, name=schema_name)
+    _compat.store(cs, node=main_cls, name=schema_name, replace=replace)
     for group, variants in groups.items():
         for var_name, var_type in variants.items():
             bases = getattr(var_type, "__orig_bases__", None)
@@ -101,7 +111,12 @@ def register_hydra_config(
                     f" with base class `{bases[0].__name__}`."
                 )
             try:
-                _compat.store(cs, node=var_type, name=var_name, group=group)
+                _compat.store(
+                    cs, node=var_type, name=var_name, group=group, replace=replace
+                )
+            except ValueError:
+                # A collision with `replace=False`; the message is already descriptive.
+                raise
             except Exception as exc:
                 raise RuntimeError(
                     f"{main_cls=}, {var_type=}, {var_name=}, {group=}"

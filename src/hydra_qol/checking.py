@@ -71,7 +71,8 @@ def validate_configs(
     """Compose and instantiate every YAML config file in ``config_dir``.
 
     First, ``main_cls`` and ``groups`` are registered with
-    :func:`~hydra_qol.register_hydra_config`. Then, every ``.yaml``/``.yml`` file below
+    :func:`~hydra_qol.register_hydra_config` (with ``replace=True``, so that it doesn't
+    matter whether the main script already registered them). Then, every ``.yaml``/``.yml`` file below
     ``config_dir`` is composed with Hydra: files at the top level of ``config_dir`` are
     treated as primary configs (``--config-name <name>``), all other files are treated
     as options of a config group (``<group>=<option>``). Finally, the composed config is
@@ -91,7 +92,7 @@ def validate_configs(
         :func:`~hydra_qol.register_hydra_config`).
     """
     config_dir = Path(config_dir).resolve()
-    register_hydra_config(main_cls, groups, schema_name=config_name)
+    register_hydra_config(main_cls, groups, schema_name=config_name, replace=True)
 
     results: list[CheckResult] = []
     with initialize_config_dir(

@@ -63,7 +63,9 @@ def test_resolves_interpolations() -> None:
 
 def test_composed_config_shows_chosen_option() -> None:
     """The type suffix tells us which config-group option was chosen."""
-    register_hydra_config(Config, CONFIG_GROUPS, schema_name="main_config")
+    register_hydra_config(
+        Config, CONFIG_GROUPS, schema_name="main_config", replace=True
+    )
 
     with initialize(**VERSION_BASE_KWARGS):
         cfg = compose("main_config", overrides=["model=cnn", "model.activation=GELU"])

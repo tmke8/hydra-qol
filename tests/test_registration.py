@@ -2,6 +2,7 @@ import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, TypeVar
+import warnings
 
 from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
@@ -25,7 +26,7 @@ def test_not_a_dataclass() -> None:
         seed: int = 1
 
     with pytest.raises(ValueError, match="should be a dataclass"):
-        register_hydra_config(Config, {})
+        register_hydra_config(Config, {}, replace=True)
 
 
 def test_config_no_default() -> None:
@@ -41,10 +42,10 @@ def test_config_no_default() -> None:
 
     options: dict[str, dict[str, type]] = {}
     with pytest.raises(ValueError, match="default value or registered variants"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
     options = {"dm": {"base": DataModule}}
-    register_hydra_config(Config, options)
+    register_hydra_config(Config, options, replace=True)
 
     @dataclass
     class UnrelatedClass:
@@ -52,7 +53,7 @@ def test_config_no_default() -> None:
 
     options = {"dm": {"base": UnrelatedClass}}
     with pytest.raises(ValueError, match="is not a subclass of `DataModule`"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 def test_config_any() -> None:
@@ -68,17 +69,17 @@ def test_config_any() -> None:
     # you want to use variants
     options: dict[str, dict[str, type]] = {}
     with pytest.raises(ValueError, match="there should be variants"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
     options = {"dm": {"base": DataModule}}
-    register_hydra_config(Config, options)
+    register_hydra_config(Config, options, replace=True)
 
     class NotDC:
         x: int
 
     options = {"dm": {"base": NotDC}}
     with pytest.raises(ValueError, match="All variants should be dataclasses"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 def test_config_any_string() -> None:
@@ -92,10 +93,10 @@ def test_config_any_string() -> None:
 
     options: dict[str, dict[str, type]] = {}
     with pytest.raises(ValueError, match="there should be variants"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
     options = {"dm": {"base": DataModule}}
-    register_hydra_config(Config, options)
+    register_hydra_config(Config, options, replace=True)
 
 
 def test_config_base_class() -> None:
@@ -117,10 +118,10 @@ def test_config_base_class() -> None:
 
     options: dict[str, dict[str, type]] = {}
     with pytest.raises(ValueError):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
     options = {"dm": {"cmnist": CMnist, "celeba": CelebA}}
-    register_hydra_config(Config, options)
+    register_hydra_config(Config, options, replace=True)
 
     @dataclass
     class NotSubclass:
@@ -128,7 +129,7 @@ def test_config_base_class() -> None:
 
     options = {"dm": {"base": NotSubclass}}
     with pytest.raises(ValueError, match="is not a subclass of"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 def test_config_union() -> None:
@@ -147,7 +148,7 @@ def test_config_union() -> None:
 
     options: dict[str, dict[str, type]] = {"dm": {"cmnist": CMnist, "celeba": CelebA}}
     with pytest.raises(ValueError, match="is not a dataclass"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 def test_config_any_with_default() -> None:
@@ -163,11 +164,11 @@ def test_config_any_with_default() -> None:
 
     options: dict[str, dict[str, type]] = {}
     with pytest.raises(ValueError):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
     options = {"model": {"base": Model}}
     with pytest.raises(ValueError, match="there should be no default value"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 def test_config_with_default() -> None:
@@ -182,11 +183,11 @@ def test_config_with_default() -> None:
         model: Model = dataclasses.field(default_factory=Model)
 
     options: dict[str, dict[str, type]] = {}
-    register_hydra_config(Config, options)
+    register_hydra_config(Config, options, replace=True)
 
     options = {"model": {"base": Model}}
     with pytest.raises(ValueError, match="both a default value and variants"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 @dataclass
@@ -202,11 +203,11 @@ def test_config_with_default_string() -> None:
         model: "_GlobalModel" = dataclasses.field(default_factory=_GlobalModel)
 
     options: dict[str, dict[str, type]] = {}
-    register_hydra_config(Config, options)
+    register_hydra_config(Config, options, replace=True)
 
     options = {"model": {"base": _GlobalModel}}
     with pytest.raises(ValueError):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 T = TypeVar("T")
@@ -225,11 +226,13 @@ def test_config_generic() -> None:
 
     options: dict[str, dict[str, type]] = {"dm": {"asdf": DataModule}}
     with pytest.raises(ValueError, match="generic base class"):
-        register_hydra_config(Config, options)
+        register_hydra_config(Config, options, replace=True)
 
 
 def test_stored_in_config_store() -> None:
-    register_hydra_config(Config, CONFIG_GROUPS, schema_name="main_config")
+    register_hydra_config(
+        Config, CONFIG_GROUPS, schema_name="main_config", replace=True
+    )
 
     repo = ConfigStore.instance().repo
     assert "main_config.yaml" in repo
@@ -241,7 +244,9 @@ def test_stored_in_config_store() -> None:
 
 def test_compose_from_registered_schema() -> None:
     """End-to-end: after registration, Hydra can compose the config without any YAML."""
-    register_hydra_config(Config, CONFIG_GROUPS, schema_name="main_config")
+    register_hydra_config(
+        Config, CONFIG_GROUPS, schema_name="main_config", replace=True
+    )
 
     with initialize(**VERSION_BASE_KWARGS):
         cfg = compose("main_config")
@@ -263,3 +268,34 @@ def test_compose_from_registered_schema() -> None:
         # Keys that don't exist in the selected option are rejected.
         with pytest.raises(Exception, match="hidden_dim"):
             compose("main_config", overrides=["model=cnn", "model.hidden_dim=10"])
+
+
+def test_replace() -> None:
+    @dataclass
+    class Model:
+        layers: int = 1
+
+    @dataclass
+    class Config:
+        model: Model
+
+    groups: dict[str, dict[str, type]] = {"model": {"replace_test": Model}}
+
+    # First registration: nothing to replace, so `replace=False` is fine.
+    register_hydra_config(Config, groups, schema_name="replace_test", replace=False)
+
+    # Second registration: with `replace=False`, both the schema and the group option
+    # collide.
+    with pytest.raises(ValueError, match="'replace_test.yaml' is already registered"):
+        register_hydra_config(Config, groups, schema_name="replace_test", replace=False)
+    with pytest.raises(
+        ValueError, match="'model/replace_test.yaml' is already registered"
+    ):
+        register_hydra_config(
+            Config, groups, schema_name="replace_test_2", replace=False
+        )
+
+    # With `replace=True`, re-registering is silent on every Hydra version.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        register_hydra_config(Config, groups, schema_name="replace_test", replace=True)
