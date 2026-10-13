@@ -98,8 +98,7 @@ uv run ty check
 ## Acknowledgements
 
 `register_hydra_config` and `prepare_for_logging` originate from
-[ranzen](https://github.com/wearepal/ranzen) (Apache 2.0), and the config-checking
-functions from [hydra-example](https://github.com/wearepal/hydra-example).
+[ranzen](https://github.com/wearepal/ranzen) (Apache 2.0).
 
 ## License
 

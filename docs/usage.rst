@@ -193,7 +193,6 @@ them:
      - main_config
      - override model: single_linear_layer
      - override dm: celeba_male_smiling
-     - _self_
 
    seed: 1
    opt:

@@ -3,7 +3,6 @@ defaults:
   - main_config
   - override model: single_linear_layer
   - override dm: celeba_male_smiling_small
-  - _self_
 
 seed: 1
 gpu: 0
