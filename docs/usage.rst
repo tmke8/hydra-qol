@@ -140,9 +140,8 @@ is not a subclass of the entry's type. The schema name has to match the
 
 If a config name is already present in the ``ConfigStore`` (for example because
 ``register_hydra_config()`` is called twice), the ``replace`` argument decides what
-happens: ``True`` replaces silently, ``False`` raises, and the default ``None`` leaves
-it to Hydra, which warns (and will raise in Hydra 1.5), since an accidental double
-registration is usually a bug. :func:`~hydra_qol.validate_configs` always registers
+happens: the default ``False`` raises a ``ValueError``, since an accidental double
+registration is usually a bug, and ``True`` replaces the existing config silently. :func:`~hydra_qol.validate_configs` always registers
 with ``replace=True``, so it can be run after the main module has been imported.
 
 Now the config can be composed from the command line as usual:

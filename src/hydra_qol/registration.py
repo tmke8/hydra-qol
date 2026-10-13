@@ -17,7 +17,7 @@ def register_hydra_config(
     groups: dict[str, dict[str, type]],
     schema_name: str = "config_schema",
     *,
-    replace: bool | None = None,
+    replace: bool = False,
 ) -> None:
     """Check the given config classes and store everything in Hydra's ``ConfigStore``.
 
@@ -47,11 +47,10 @@ def register_hydra_config(
         defaults list of a YAML file that is used as the primary config).
     :param replace: What to do if a config with the same name is already registered in
         the ``ConfigStore`` (this happens, for example, if this function is called
-        twice). ``True`` replaces the existing config silently, ``False`` raises a
-        :class:`ValueError`, and ``None`` (the default) leaves the decision to Hydra,
-        which warns and replaces in Hydra 1.4 and will raise in Hydra 1.5. For a
-        normal Hydra app, the default is the right choice, because a collision usually
-        means that something is registered twice by accident.
+        twice). ``False`` (the default) raises a :class:`ValueError`, ``True`` replaces
+        the existing config silently. For a normal Hydra app, the default is the right
+        choice, because a collision usually means that something is registered twice by
+        accident.
     :raises ValueError: If the config is malformed in some way, or on a collision
         with ``replace=False``.
     :raises RuntimeError: If Hydra itself is throwing an error.

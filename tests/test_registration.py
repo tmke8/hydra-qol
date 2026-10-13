@@ -283,10 +283,10 @@ def test_replace() -> None:
     # First registration: nothing to replace, so `replace=False` is fine.
     register_hydra_config(Config, groups, schema_name="replace_test", replace=False)
 
-    # Second registration: with `replace=False`, both the schema and the group option
-    # collide.
+    # Second registration: by default (`replace=False`), both the schema and the group
+    # option collide.
     with pytest.raises(ValueError, match="'replace_test.yaml' is already registered"):
-        register_hydra_config(Config, groups, schema_name="replace_test", replace=False)
+        register_hydra_config(Config, groups, schema_name="replace_test")
     with pytest.raises(
         ValueError, match="'model/replace_test.yaml' is already registered"
     ):
