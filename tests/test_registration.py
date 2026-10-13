@@ -10,7 +10,6 @@ from omegaconf import OmegaConf
 import pytest
 
 from hydra_qol import register_hydra_config
-from hydra_qol._compat import VERSION_BASE_KWARGS
 
 from .example_config import (
     CONFIG_GROUPS,
@@ -248,7 +247,7 @@ def test_compose_from_registered_schema() -> None:
         Config, CONFIG_GROUPS, schema_name="main_config", replace=True
     )
 
-    with initialize(**VERSION_BASE_KWARGS):
+    with initialize():
         cfg = compose("main_config")
         config = OmegaConf.to_object(cfg)
         assert isinstance(config, Config)
@@ -295,7 +294,7 @@ def test_replace() -> None:
             Config, groups, schema_name="replace_test_2", replace=False
         )
 
-    # With `replace=True`, re-registering is silent on every Hydra version.
+    # With `replace=True`, re-registering is silent.
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         register_hydra_config(Config, groups, schema_name="replace_test", replace=True)

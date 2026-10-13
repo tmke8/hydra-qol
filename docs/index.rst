@@ -30,8 +30,8 @@ Installation
    # or
    pip install hydra-qol
 
-``hydra-qol`` requires Python 3.11 or newer and depends only on ``hydra-core`` and
-``omegaconf``.
+``hydra-qol`` requires Python 3.11 or newer and depends only on ``hydra-core`` (1.4 or
+newer; at the time of writing that is a pre-release) and ``omegaconf`` (2.4 or newer).
 
 .. toctree::
    :maxdepth: 2

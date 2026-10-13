@@ -8,7 +8,6 @@ from omegaconf import MISSING, MissingMandatoryValue, OmegaConf
 import pytest
 
 from hydra_qol import prepare_for_logging, register_hydra_config
-from hydra_qol._compat import VERSION_BASE_KWARGS
 
 from .example_config import CONFIG_GROUPS, Config
 
@@ -67,7 +66,7 @@ def test_composed_config_shows_chosen_option() -> None:
         Config, CONFIG_GROUPS, schema_name="main_config", replace=True
     )
 
-    with initialize(**VERSION_BASE_KWARGS):
+    with initialize():
         cfg = compose("main_config", overrides=["model=cnn", "model.activation=GELU"])
 
     logging_dict = prepare_for_logging(cfg)

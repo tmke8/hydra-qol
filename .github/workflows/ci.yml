@@ -68,13 +68,3 @@ jobs:
         run: |
           uv run sphinx-build -W --keep-going -b html docs docs/_build/html
 
-  test-hydra-prerelease:
-    # hydra-core 1.4 is still a pre-release; make sure we work with it too.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-      - name: Run tests against the latest hydra-core/omegaconf pre-releases
-        run: |
-          uv run --prerelease=allow --with "hydra-core>=1.4.0rc1" --with "omegaconf>=2.4" --group test pytest

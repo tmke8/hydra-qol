@@ -12,7 +12,8 @@ uv add hydra-qol
 pip install hydra-qol
 ```
 
-Requires Python 3.11+ and depends only on `hydra-core` and `omegaconf`.
+Requires Python 3.11+, `hydra-core` 1.4+ (a pre-release at the time of writing) and
+`omegaconf` 2.4+.
 
 ## What's in the box
 
@@ -34,7 +35,7 @@ from hydra_qol import prepare_for_logging, register_hydra_config
 from my_project.config import CONFIG_GROUPS, Config
 
 
-@hydra.main(config_path="configs", config_name="main_config", version_base=None)
+@hydra.main(config_path="configs", config_name="main_config")
 def main(hydra_config: DictConfig) -> None:
     config = OmegaConf.to_object(hydra_config)
     assert isinstance(config, Config)

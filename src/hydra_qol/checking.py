@@ -18,7 +18,6 @@ from typing import Any, TextIO
 from hydra import compose, initialize_config_dir
 from omegaconf import DictConfig, OmegaConf, open_dict
 
-from . import _compat
 from .registration import register_hydra_config
 
 __all__ = [
@@ -95,9 +94,7 @@ def validate_configs(
     register_hydra_config(main_cls, groups, schema_name=config_name, replace=True)
 
     results: list[CheckResult] = []
-    with initialize_config_dir(
-        config_dir=str(config_dir), **_compat.VERSION_BASE_KWARGS
-    ):
+    with initialize_config_dir(config_dir=str(config_dir)):
         # Groups that are already in the defaults list are overridden with
         # `group=option`, all others have to be appended with `+group=option`.
         base_cfg = compose(config_name, return_hydra_config=True)

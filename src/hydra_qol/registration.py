@@ -6,8 +6,6 @@ from typing import Any, Final, get_args, get_type_hints
 
 from hydra.core.config_store import ConfigStore
 
-from . import _compat
-
 __all__ = ["register_hydra_config"]
 
 _NEED: Final = "there should be"
@@ -50,10 +48,10 @@ def register_hydra_config(
     :param replace: What to do if a config with the same name is already registered in
         the ``ConfigStore`` (this happens, for example, if this function is called
         twice). ``True`` replaces the existing config silently, ``False`` raises a
-        :class:`ValueError`, and ``None`` (the default) leaves the decision to Hydra:
-        Hydra 1.3 replaces silently, Hydra 1.4 warns and replaces, and Hydra 1.5 will
-        raise. For a normal Hydra app, the default is the right choice, because a
-        collision usually means that something is registered twice by accident.
+        :class:`ValueError`, and ``None`` (the default) leaves the decision to Hydra,
+        which warns and replaces in Hydra 1.4 and will raise in Hydra 1.5. For a
+        normal Hydra app, the default is the right choice, because a collision usually
+        means that something is registered twice by accident.
     :raises ValueError: If the config is malformed in some way, or on a collision
         with ``replace=False``.
     :raises RuntimeError: If Hydra itself is throwing an error.
@@ -101,7 +99,7 @@ def register_hydra_config(
         )
 
     cs = ConfigStore.instance()
-    _compat.store(cs, node=main_cls, name=schema_name, replace=replace)
+    cs.store(node=main_cls, name=schema_name, replace=replace)
     for group, variants in groups.items():
         for var_name, var_type in variants.items():
             bases = getattr(var_type, "__orig_bases__", None)
@@ -111,9 +109,7 @@ def register_hydra_config(
                     f" with base class `{bases[0].__name__}`."
                 )
             try:
-                _compat.store(
-                    cs, node=var_type, name=var_name, group=group, replace=replace
-                )
+                cs.store(node=var_type, name=var_name, group=group, replace=replace)
             except ValueError:
                 # A collision with `replace=False`; the message is already descriptive.
                 raise
