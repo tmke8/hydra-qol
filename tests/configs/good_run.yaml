@@ -1,0 +1,19 @@
+---
+defaults:
+  - main_config
+  - override model: single_linear_layer
+  - override dm: celeba_male_smiling_small
+  - _self_
+
+seed: 1
+gpu: 0
+
+model:
+  activation: SELU
+
+dm:
+  download: false
+
+opt:
+  lr: 0.001
+  weight_decay: 0.001

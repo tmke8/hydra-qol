@@ -1,0 +1,6 @@
+---
+defaults:
+  - celeba
+
+superclass: Smiling
+subclass: Male

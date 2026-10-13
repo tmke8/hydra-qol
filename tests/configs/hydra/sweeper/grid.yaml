@@ -1,0 +1,9 @@
+---
+# usage: --multirun hydra/sweeper=grid
+defaults:
+  - basic
+
+max_batch_size: 2
+params:
+  seed: 1,2,3
+  model.num_hidden: 1,2

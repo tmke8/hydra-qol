@@ -1,0 +1,5 @@
+---
+defaults:
+  - celeba_male_smiling
+
+default_res: 64

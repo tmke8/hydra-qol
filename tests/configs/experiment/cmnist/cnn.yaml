@@ -1,0 +1,10 @@
+# @package _global_
+# usage: +experiment=cmnist/cnn
+defaults:
+  - override /dm: cmnist
+  - override /model: cnn
+
+seed: 7
+
+model:
+  kernel_size: 3
