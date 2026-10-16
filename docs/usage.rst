@@ -208,9 +208,13 @@ experiment: it composes every YAML file below the config directory and instantia
 ``Config`` from the result.
 
 * Top-level files are composed as primary configs (``--config-name <name>``).
-* Files in subdirectories are composed as config-group options on top of the schema
-  (``<group>=<option>``, or ``+<group>=<option>`` if the group is not in the defaults
-  list). Nested groups such as ``hydra/sweeper`` and options with slashes such as
+* Files in subdirectories are composed as config-group options on top of the primary
+  config ``config_with_defaults``, which defaults to the schema (``<group>=<option>``,
+  or ``+<group>=<option>`` if the group is not in its defaults list). Each option is
+  checked on its own, with a single override, so ``config_with_defaults`` has to
+  select a default option for *every* config group; a group without a default would
+  stay missing and make every check fail.
+  Nested groups such as ``hydra/sweeper`` and options with slashes such as
   ``+experiment=cmnist/cnn`` are handled.
 * The keys listed under ``hydra.sweeper.params`` are checked for existence, since they
   are plain strings in the sweeper config.
@@ -232,11 +236,30 @@ experiment: it composes every YAML file below the config directory and instantia
            check_configs(
                Config,
                CONFIG_GROUPS,
-               # Has to match both `schema_name` and `config_name` in `main.py`.
-               config_name="main_config",
+               # The same `schema_name` as in `register_hydra_config()` in `main.py`.
+               schema_name="main_config",
                config_dir="configs",
            )
        )
+
+Here, the schema registered with :func:`~hydra_qol.register_hydra_config` contains the
+defaults list and doubles as the default primary config, so ``schema_name`` is all
+that is needed. If the defaults list lives in a YAML file instead
+(``@hydra.main(config_name="default_config")`` with
+``register_hydra_config(..., schema_name="base_config")`` and a
+``configs/default_config.yaml`` whose defaults list starts with ``base_config``), pass
+that file as ``config_with_defaults``, so that the config-group options are composed on
+top of a primary config that selects an option for every group:
+
+.. code-block:: python
+
+   check_configs(
+       Config,
+       CONFIG_GROUPS,
+       schema_name="base_config",
+       config_with_defaults="default_config",
+       config_dir="configs",
+   )
 
 The script prints one line per file and the traceback for every failure::
 
@@ -277,7 +300,7 @@ of :class:`~hydra_qol.CheckResult` objects instead of printing:
 
    def test_all_configs_are_valid() -> None:
        results = validate_configs(
-           Config, CONFIG_GROUPS, config_name="main_config", config_dir=CONFIG_DIR
+           Config, CONFIG_GROUPS, schema_name="main_config", config_dir=CONFIG_DIR
        )
        failures = [r for r in results if not r.ok]
        assert not failures, "\n".join(f"{r.description}\n{r.traceback}" for r in failures)

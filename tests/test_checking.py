@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 import io
 from pathlib import Path
 
@@ -14,7 +15,13 @@ from hydra_qol import (
     validate_configs,
 )
 
-from .example_config import CONFIG_GROUPS, Config
+from .example_config import (
+    CONFIG_GROUPS,
+    Config,
+    DataModule,
+    ModelFactory,
+    OptimisationCfg,
+)
 
 EXPECTED_CMDLINE_ARGS = {
     "dm/celeba_male_smiling.yaml": "dm=celeba_male_smiling",
@@ -29,14 +36,14 @@ EXPECTED_CMDLINE_ARGS = {
 
 def _validate(config_dir: Path) -> dict[str, CheckResult]:
     results = validate_configs(
-        Config, CONFIG_GROUPS, config_name="main_config", config_dir=config_dir
+        Config, CONFIG_GROUPS, schema_name="main_config", config_dir=config_dir
     )
     return {result.path.as_posix(): result for result in results}
 
 
 def test_all_valid(config_dir: Path) -> None:
     results = validate_configs(
-        Config, CONFIG_GROUPS, config_name="main_config", config_dir=config_dir
+        Config, CONFIG_GROUPS, schema_name="main_config", config_dir=config_dir
     )
     assert [r.path.as_posix() for r in results] == sorted(EXPECTED_CMDLINE_ARGS)
     assert {r.path.as_posix(): r.cmdline_arg for r in results} == EXPECTED_CMDLINE_ARGS
@@ -52,7 +59,7 @@ def test_check_configs_all_valid(config_dir: Path) -> None:
     exit_code = check_configs(
         Config,
         CONFIG_GROUPS,
-        config_name="main_config",
+        schema_name="main_config",
         config_dir=config_dir,
         file=out,
     )
@@ -66,7 +73,7 @@ def test_check_configs_all_valid(config_dir: Path) -> None:
 
 def test_accepts_str_config_dir(config_dir: Path) -> None:
     results = validate_configs(
-        Config, CONFIG_GROUPS, config_name="main_config", config_dir=str(config_dir)
+        Config, CONFIG_GROUPS, schema_name="main_config", config_dir=str(config_dir)
     )
     assert all(r.ok for r in results)
 
@@ -151,7 +158,7 @@ def test_check_configs_reports_failures(config_dir: Path) -> None:
     exit_code = check_configs(
         Config,
         CONFIG_GROUPS,
-        config_name="main_config",
+        schema_name="main_config",
         config_dir=config_dir,
         file=out,
     )
@@ -166,10 +173,92 @@ def test_check_configs_reports_failures(config_dir: Path) -> None:
     )
 
 
+@dataclass(kw_only=True)
+class SchemaOnlyConfig:
+    """A main config class without a defaults list.
+
+    The defaults are instead chosen in a YAML primary config that inherits from the
+    schema.
+    """
+
+    dm: DataModule
+    model: ModelFactory
+    opt: OptimisationCfg = field(default_factory=OptimisationCfg)
+    seed: int = 42
+
+
+@pytest.fixture
+def split_config_dir(tmp_path: Path) -> Path:
+    """A config directory whose default primary config is a YAML file, not the schema."""
+    config_dir = tmp_path / "configs"
+    (config_dir / "model").mkdir(parents=True)
+    (config_dir / "hydra" / "sweeper").mkdir(parents=True)
+    (config_dir / "default_config.yaml").write_text(
+        "defaults:\n  - base_config\n  - dm: cmnist\n  - model: fcn\n  - opt: null\n"
+    )
+    (config_dir / "other_run.yaml").write_text(
+        "defaults:\n  - base_config\n  - dm: celeba\n  - model: cnn\n\nseed: 1\n"
+    )
+    (config_dir / "model" / "small.yaml").write_text(
+        "defaults:\n  - fcn\n\nnum_hidden: 0\n"
+    )
+    (config_dir / "hydra" / "sweeper" / "grid.yaml").write_text(
+        "defaults:\n  - basic\n\nparams:\n  model.num_hidden: 1,2\n"
+    )
+    return config_dir
+
+
+def test_separate_config_with_defaults(split_config_dir: Path) -> None:
+    results = validate_configs(
+        SchemaOnlyConfig,
+        CONFIG_GROUPS,
+        schema_name="base_config",
+        config_dir=split_config_dir,
+        config_with_defaults="default_config",
+    )
+    assert {r.path.as_posix(): r.cmdline_arg for r in results} == {
+        "default_config.yaml": "--config-name default_config",
+        "hydra/sweeper/grid.yaml": "hydra/sweeper=grid",
+        "model/small.yaml": "model=small",
+        "other_run.yaml": "--config-name other_run",
+    }
+    for result in results:
+        assert result.ok, result.traceback
+
+
+def test_separate_schema_error_message_names_schema(split_config_dir: Path) -> None:
+    (split_config_dir / "untyped.yaml").write_text("seed: 1\n")
+    results = validate_configs(
+        SchemaOnlyConfig,
+        CONFIG_GROUPS,
+        schema_name="base_config",
+        config_dir=split_config_dir,
+        config_with_defaults="default_config",
+    )
+    failures = {r.path.as_posix(): r for r in results if not r.ok}
+    assert set(failures) == {"untyped.yaml"}
+    assert isinstance(failures["untyped.yaml"].error, TypeError)
+    assert "`base_config`" in str(failures["untyped.yaml"].error)
+
+
+def test_check_configs_passes_config_with_defaults(split_config_dir: Path) -> None:
+    out = io.StringIO()
+    exit_code = check_configs(
+        SchemaOnlyConfig,
+        CONFIG_GROUPS,
+        schema_name="base_config",
+        config_dir=split_config_dir,
+        config_with_defaults="default_config",
+        file=out,
+    )
+    assert exit_code == 0, out.getvalue()
+    assert out.getvalue().splitlines()[-1] == "All config files are valid."
+
+
 def test_malformed_config_class_raises(config_dir: Path) -> None:
     """Problems with the config classes themselves are raised, not recorded."""
     with pytest.raises(ValueError, match="should be a dataclass"):
-        validate_configs(int, {}, config_name="main_config", config_dir=config_dir)
+        validate_configs(int, {}, schema_name="main_config", config_dir=config_dir)
 
 
 @pytest.mark.parametrize(

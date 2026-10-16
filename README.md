@@ -21,7 +21,7 @@ Requires Python 3.11+, `hydra-core` 1.4+ (a pre-release at the time of writing) 
 | --- | --- |
 | `register_hydra_config(Config, groups, schema_name=...)` | Stores the main config class and all config-group options in Hydra's `ConfigStore`, after checking the classes for common mistakes. |
 | `prepare_for_logging(hydra_config)` | Turns a composed config into a plain dict (enums → strings, interpolations resolved, subconfigs tagged with their type), ready for `wandb.init(config=...)`. |
-| `check_configs(Config, groups, config_name=..., config_dir=...)` | Composes every YAML file in `config_dir` and instantiates `Config` from it; prints a report and returns an exit code. |
+| `check_configs(Config, groups, schema_name=..., config_dir=...)` | Composes every YAML file in `config_dir` and instantiates `Config` from it; prints a report and returns an exit code. |
 | `validate_configs(...)` | Same as `check_configs`, but returns a list of `CheckResult` objects instead of printing. Handy in a test suite. |
 
 ## Quick start
@@ -59,10 +59,16 @@ from my_project.config import CONFIG_GROUPS, Config
 if __name__ == "__main__":
     sys.exit(
         check_configs(
-            Config, CONFIG_GROUPS, config_name="main_config", config_dir="configs"
+            Config, CONFIG_GROUPS, schema_name="main_config", config_dir="configs"
         )
     )
 ```
+
+Config-group options are checked one at a time on top of the schema, so the schema's
+defaults list has to select an option for every config group. If the defaults list
+lives in a YAML file instead (i.e. `@hydra.main(config_name="default_config")` together
+with `register_hydra_config(..., schema_name="base_config")`), pass that file as well:
+`check_configs(..., schema_name="base_config", config_with_defaults="default_config", ...)`.
 
 ```
 $ python check_configs.py

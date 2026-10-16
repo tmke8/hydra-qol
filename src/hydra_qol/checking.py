@@ -64,40 +64,56 @@ def validate_configs(
     main_cls: type,
     groups: dict[str, dict[str, type]],
     *,
-    config_name: str,
+    schema_name: str,
     config_dir: Path | str,
+    config_with_defaults: str | None = None,
 ) -> list[CheckResult]:
     """Compose and instantiate every YAML config file in ``config_dir``.
 
     First, ``main_cls`` and ``groups`` are registered with
     :func:`~hydra_qol.register_hydra_config` (with ``replace=True``, so that it doesn't
-    matter whether the main script already registered them). Then, every ``.yaml``/``.yml`` file below
-    ``config_dir`` is composed with Hydra: files at the top level of ``config_dir`` are
-    treated as primary configs (``--config-name <name>``), all other files are treated
-    as options of a config group (``<group>=<option>``). Finally, the composed config is
-    converted to an instance of ``main_cls`` with :func:`to_object`. Any exception
-    raised along the way is recorded in the corresponding :class:`CheckResult`.
+    matter whether the main script already registered them). Then, every
+    ``.yaml``/``.yml`` file below ``config_dir`` is composed with Hydra: files at the
+    top level of ``config_dir`` are treated as primary configs
+    (``--config-name <name>``), all other files are treated as options of a config
+    group (``<group>=<option>``) and are composed on top of ``config_with_defaults``.
+    Finally, the composed config is converted to an instance of ``main_cls`` with
+    :func:`to_object`. Any exception raised along the way is recorded in the
+    corresponding :class:`CheckResult`.
 
     :param main_cls: The main config class; has to be a dataclass.
     :param groups: The config groups, in the same format as expected by
         :func:`~hydra_qol.register_hydra_config`.
-    :param config_name: Name of the main schema. This has to match both the
-        ``schema_name`` passed to :func:`~hydra_qol.register_hydra_config` and the
-        ``config_name`` passed to ``@hydra.main()`` in the main script.
+    :param schema_name: Name under which ``main_cls`` is registered; the same as the
+        ``schema_name`` passed to :func:`~hydra_qol.register_hydra_config` in the main
+        script.
     :param config_dir: The directory containing the YAML config files; the same
         directory as the ``config_path`` passed to ``@hydra.main()``.
+    :param config_with_defaults: Name of the primary config that the config-group
+        options are composed on top of; usually the same as the ``config_name`` passed
+        to ``@hydra.main()`` in the main script. This is either the schema itself (if
+        the defaults list is part of ``main_cls``) or a YAML file in ``config_dir``
+        whose defaults list starts with the schema. Every config-group option is
+        composed on top of this config with only its own override (e.g.
+        ``model=cnn``), so this config has to select a default option for *every*
+        config group; otherwise, the groups that are not overridden stay missing and
+        the check fails. Groups listed in its defaults list are overridden with
+        ``group=option``, all others are added with ``+group=option``. Defaults to
+        ``schema_name``.
     :returns: One :class:`CheckResult` per config file, sorted by path.
     :raises ValueError: If the config classes themselves are malformed (see
         :func:`~hydra_qol.register_hydra_config`).
     """
     config_dir = Path(config_dir).resolve()
-    register_hydra_config(main_cls, groups, schema_name=config_name, replace=True)
+    if config_with_defaults is None:
+        config_with_defaults = schema_name
+    register_hydra_config(main_cls, groups, schema_name=schema_name, replace=True)
 
     results: list[CheckResult] = []
     with initialize_config_dir(config_dir=str(config_dir)):
         # Groups that are already in the defaults list are overridden with
         # `group=option`, all others have to be appended with `+group=option`.
-        base_cfg = compose(config_name, return_hydra_config=True)
+        base_cfg = compose(config_with_defaults, return_hydra_config=True)
         groups_in_defaults = set(base_cfg.hydra.runtime.choices)
 
         for path in sorted(config_dir.rglob("*.y*ml")):
@@ -113,7 +129,7 @@ def validate_configs(
             else:
                 # Any other config is an option in a config group.
                 override = construct_override(name_parts, groups_in_defaults)
-                primary_config = config_name
+                primary_config = config_with_defaults
                 overrides = [override]
                 cmdline_arg = override
 
@@ -126,7 +142,7 @@ def validate_configs(
                     raise TypeError(
                         f"Config was not instantiated as `{main_cls.__name__}`, but as "
                         f"`{type(config_obj).__name__}`. (Does the primary config "
-                        f"inherit from `{config_name}` in its defaults list?)"
+                        f"inherit from `{schema_name}` in its defaults list?)"
                     )
             except Exception as exc:
                 results.append(
@@ -146,8 +162,9 @@ def check_configs(
     main_cls: type,
     groups: dict[str, dict[str, type]],
     *,
-    config_name: str,
+    schema_name: str,
     config_dir: Path | str,
+    config_with_defaults: str | None = None,
     file: TextIO | None = None,
 ) -> int:
     """Check all YAML config files in ``config_dir`` and print a report.
@@ -159,21 +176,28 @@ def check_configs(
         if __name__ == "__main__":
             sys.exit(
                 check_configs(
-                    Config, CONFIG_GROUPS, config_name="main_config", config_dir="configs"
+                    Config, CONFIG_GROUPS, schema_name="main_config", config_dir="configs"
                 )
             )
 
     :param main_cls: The main config class; has to be a dataclass.
     :param groups: The config groups, in the same format as expected by
         :func:`~hydra_qol.register_hydra_config`.
-    :param config_name: Name of the main schema; see :func:`validate_configs`.
+    :param schema_name: Name of the main schema; see :func:`validate_configs`.
     :param config_dir: The directory containing the YAML config files.
+    :param config_with_defaults: Name of the primary config that the config-group
+        options are composed on top of, if it differs from ``schema_name``; see
+        :func:`validate_configs`.
     :param file: Where to print the report to; defaults to ``sys.stdout``.
     :returns: ``0`` if all config files are valid, ``1`` otherwise.
     """
     out = sys.stdout if file is None else file
     results = validate_configs(
-        main_cls, groups, config_name=config_name, config_dir=config_dir
+        main_cls,
+        groups,
+        schema_name=schema_name,
+        config_dir=config_dir,
+        config_with_defaults=config_with_defaults,
     )
 
     failures = [result for result in results if not result.ok]
