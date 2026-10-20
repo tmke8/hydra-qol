@@ -1,6 +1,6 @@
 [project]
 name = "hydra-qol"
-version = "0.2.0"
+version = "0.2.2"
 description = "Quality-of-life helpers for Hydra: register dataclass configs and check that all YAML config files are valid."
 readme = "README.md"
 license = "Apache-2.0"
