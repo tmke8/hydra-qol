@@ -11,20 +11,6 @@ The package has two parts:
   caught without running any experiments.
 """
 
-from .checking import CheckResult as CheckResult
-from .checking import check_configs as check_configs
-from .checking import construct_override as construct_override
-from .checking import to_object as to_object
-from .checking import validate_configs as validate_configs
-from .formatting import prepare_for_logging as prepare_for_logging
-from .registration import register_hydra_config as register_hydra_config
-
-__all__ = [
-    "CheckResult",
-    "check_configs",
-    "construct_override",
-    "prepare_for_logging",
-    "register_hydra_config",
-    "to_object",
-    "validate_configs",
-]
+from .checking import *
+from .formatting import *
+from .registration import *

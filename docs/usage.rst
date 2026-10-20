@@ -304,3 +304,30 @@ of :class:`~hydra_qol.CheckResult` objects instead of printing:
        )
        failures = [r for r in results if not r.ok]
        assert not failures, "\n".join(f"{r.description}\n{r.traceback}" for r in failures)
+
+To get one test case per config file instead, initialize Hydra once in a fixture with
+:func:`~hydra_qol.setup_validation` and check each file with
+:func:`~hydra_qol.validate_config`:
+
+.. code-block:: python
+
+   from collections.abc import Iterator
+
+   from hydra_qol import ValidationContext, setup_validation, validate_config
+
+   @pytest.fixture(scope="module")
+   def context() -> Iterator[ValidationContext]:
+       with setup_validation(
+           Config, CONFIG_GROUPS, schema_name="main_config", config_dir=CONFIG_DIR
+       ) as context:
+           yield context
+
+   @pytest.mark.parametrize(
+       "path",
+       sorted(path.relative_to(CONFIG_DIR) for path in CONFIG_DIR.rglob("*.y*ml")),
+       ids=Path.as_posix,
+   )
+   def test_config(path: Path, context: ValidationContext) -> None:
+       result = validate_config(path, context)
+       if result.error is not None:
+           raise result.error

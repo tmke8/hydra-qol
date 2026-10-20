@@ -8,7 +8,8 @@ and value types against the registered dataclasses) and then instantiate the mai
 object from the result.
 """
 
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence, Set
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 import sys
@@ -22,9 +23,11 @@ from .registration import register_hydra_config
 
 __all__ = [
     "CheckResult",
+    "ValidationContext",
     "check_configs",
     "construct_override",
-    "to_object",
+    "setup_validation",
+    "validate_config",
     "validate_configs",
 ]
 
@@ -60,6 +63,129 @@ class CheckResult:
         return f"{self.path.as_posix()} ({self.cmdline_arg})"
 
 
+@dataclass(frozen=True, kw_only=True)
+class ValidationContext:
+    """State shared by all calls to :func:`validate_config`.
+
+    Created by :func:`setup_validation`; only valid inside its ``with`` block.
+    """
+
+    main_cls: type
+    """The main config class."""
+    schema_name: str
+    """Name under which :attr:`main_cls` is registered."""
+    config_dir: Path
+    """The resolved config directory."""
+    config_with_defaults: str
+    """Name of the primary config that the config-group options are composed on top
+    of."""
+    groups_in_defaults: frozenset[str]
+    """The config groups that are in the defaults list of
+    :attr:`config_with_defaults`."""
+
+
+@contextmanager
+def setup_validation(
+    main_cls: type,
+    groups: dict[str, dict[str, type]],
+    *,
+    schema_name: str,
+    config_dir: Path | str,
+    config_with_defaults: str | None = None,
+) -> Generator[ValidationContext, None, None]:
+    """Prepare for checking individual YAML config files with :func:`validate_config`.
+
+    This registers ``main_cls`` and ``groups`` with
+    :func:`~hydra_qol.register_hydra_config` (with ``replace=True``, so that it doesn't
+    matter whether the main script already registered them) and initializes Hydra with
+    ``config_dir``. Hydra is de-initialized again when the ``with`` block is left::
+
+        with setup_validation(Config, CONFIG_GROUPS, ...) as context:
+            for path in paths:
+                result = validate_config(path, context)
+
+    Use :func:`validate_configs` instead to simply check every file in ``config_dir``.
+
+    :param main_cls: The main config class; has to be a dataclass.
+    :param groups: The config groups, in the same format as expected by
+        :func:`~hydra_qol.register_hydra_config`.
+    :param schema_name: Name of the main schema; see :func:`validate_configs`.
+    :param config_dir: The directory containing the YAML config files.
+    :param config_with_defaults: Name of the primary config that the config-group
+        options are composed on top of, if it differs from ``schema_name``; see
+        :func:`validate_configs`.
+    :returns: A context manager that yields the :class:`ValidationContext` to pass to
+        :func:`validate_config`.
+    :raises ValueError: If the config classes themselves are malformed (see
+        :func:`~hydra_qol.register_hydra_config`).
+    """
+    config_dir = Path(config_dir).resolve()
+    if config_with_defaults is None:
+        config_with_defaults = schema_name
+    register_hydra_config(main_cls, groups, schema_name=schema_name, replace=True)
+
+    with initialize_config_dir(config_dir=str(config_dir)):
+        # Groups that are already in the defaults list are overridden with
+        # `group=option`, all others have to be appended with `+group=option`.
+        base_cfg = compose(config_with_defaults, return_hydra_config=True)
+        yield ValidationContext(
+            main_cls=main_cls,
+            schema_name=schema_name,
+            config_dir=config_dir,
+            config_with_defaults=config_with_defaults,
+            groups_in_defaults=frozenset(base_cfg.hydra.runtime.choices),
+        )
+
+
+def validate_config(path: Path, context: ValidationContext) -> CheckResult:
+    """Compose and instantiate a single YAML config file.
+
+    Has to be called inside the ``with`` block of :func:`setup_validation`. See
+    :func:`validate_configs` for how the file is composed and instantiated.
+
+    :param path: Path of the config file; either relative to the config directory or
+        an absolute path inside :attr:`ValidationContext.config_dir`.
+    :param context: The context yielded by :func:`setup_validation`.
+    :returns: The outcome of the check. Any exception raised while composing or
+        instantiating the config is recorded in it.
+    :raises ValueError: If ``path`` is absolute but not inside the config directory.
+    """
+    if path.is_absolute():
+        path = path.relative_to(context.config_dir)
+    # For each YAML file, we construct an override like `group=sub/config`.
+    name_parts = path.with_suffix("").parts
+
+    if len(name_parts) == 1:
+        # A config at the top level is a primary config.
+        primary_config = name_parts[0]
+        overrides: list[str] = []
+        cmdline_arg = f"--config-name {primary_config}"
+    else:
+        # Any other config is an option in a config group.
+        override = construct_override(name_parts, context.groups_in_defaults)
+        primary_config = context.config_with_defaults
+        overrides = [override]
+        cmdline_arg = override
+
+    try:
+        cfg = compose(primary_config, overrides=overrides, return_hydra_config=True)
+        config_obj = _to_object(cfg)
+        if not isinstance(config_obj, context.main_cls):
+            raise TypeError(
+                f"Config was not instantiated as `{context.main_cls.__name__}`, but as "
+                f"`{type(config_obj).__name__}`. (Does the primary config inherit from "
+                f"`{context.schema_name}` in its defaults list?)"
+            )
+    except Exception as exc:
+        return CheckResult(
+            path=path,
+            cmdline_arg=cmdline_arg,
+            error=exc,
+            traceback=traceback.format_exc(),
+        )
+    return CheckResult(path=path, cmdline_arg=cmdline_arg)
+
+
 def validate_configs(
     main_cls: type,
     groups: dict[str, dict[str, type]],
@@ -80,6 +206,9 @@ def validate_configs(
     Finally, the composed config is converted to an instance of ``main_cls`` with
     :func:`to_object`. Any exception raised along the way is recorded in the
     corresponding :class:`CheckResult`.
+
+    This is a shortcut for calling :func:`validate_config` on every file inside of
+    :func:`setup_validation`.
 
     :param main_cls: The main config class; has to be a dataclass.
     :param groups: The config groups, in the same format as expected by
@@ -104,58 +233,17 @@ def validate_configs(
     :raises ValueError: If the config classes themselves are malformed (see
         :func:`~hydra_qol.register_hydra_config`).
     """
-    config_dir = Path(config_dir).resolve()
-    if config_with_defaults is None:
-        config_with_defaults = schema_name
-    register_hydra_config(main_cls, groups, schema_name=schema_name, replace=True)
-
-    results: list[CheckResult] = []
-    with initialize_config_dir(config_dir=str(config_dir)):
-        # Groups that are already in the defaults list are overridden with
-        # `group=option`, all others have to be appended with `+group=option`.
-        base_cfg = compose(config_with_defaults, return_hydra_config=True)
-        groups_in_defaults = set(base_cfg.hydra.runtime.choices)
-
-        for path in sorted(config_dir.rglob("*.y*ml")):
-            # For each YAML file, we construct an override like `group=sub/config`.
-            rel_path = path.relative_to(config_dir)
-            name_parts = rel_path.with_suffix("").parts
-
-            if len(name_parts) == 1:
-                # A config at the top level is a primary config.
-                primary_config = name_parts[0]
-                overrides: list[str] = []
-                cmdline_arg = f"--config-name {primary_config}"
-            else:
-                # Any other config is an option in a config group.
-                override = construct_override(name_parts, groups_in_defaults)
-                primary_config = config_with_defaults
-                overrides = [override]
-                cmdline_arg = override
-
-            try:
-                cfg = compose(
-                    primary_config, overrides=overrides, return_hydra_config=True
-                )
-                config_obj = to_object(cfg)
-                if not isinstance(config_obj, main_cls):
-                    raise TypeError(
-                        f"Config was not instantiated as `{main_cls.__name__}`, but as "
-                        f"`{type(config_obj).__name__}`. (Does the primary config "
-                        f"inherit from `{schema_name}` in its defaults list?)"
-                    )
-            except Exception as exc:
-                results.append(
-                    CheckResult(
-                        path=rel_path,
-                        cmdline_arg=cmdline_arg,
-                        error=exc,
-                        traceback=traceback.format_exc(),
-                    )
-                )
-            else:
-                results.append(CheckResult(path=rel_path, cmdline_arg=cmdline_arg))
-    return results
+    with setup_validation(
+        main_cls,
+        groups,
+        schema_name=schema_name,
+        config_dir=config_dir,
+        config_with_defaults=config_with_defaults,
+    ) as context:
+        return [
+            validate_config(path, context)
+            for path in sorted(context.config_dir.rglob("*.y*ml"))
+        ]
 
 
 def check_configs(
@@ -217,7 +305,7 @@ def check_configs(
     return 0
 
 
-def construct_override(name_parts: Sequence[str], groups_in_defaults: set[str]) -> str:
+def construct_override(name_parts: Sequence[str], groups_in_defaults: Set[str]) -> str:
     """Construct the command-line override that selects a config-group option.
 
     Groups can be nested (e.g. ``hydra/launcher``) and options can contain slashes
@@ -246,7 +334,7 @@ def construct_override(name_parts: Sequence[str], groups_in_defaults: set[str]) 
     return f"{prefix}{group}={option}"
 
 
-def to_object(cfg: DictConfig) -> Any:
+def _to_object(cfg: DictConfig) -> Any:
     """Instantiate the config object from a composed config.
 
     This mimics what ``@hydra.main()`` does before calling the decorated function

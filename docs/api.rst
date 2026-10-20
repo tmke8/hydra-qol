@@ -23,6 +23,11 @@ Checking config files
 .. autoclass:: CheckResult
    :members:
 
-.. autofunction:: construct_override
+.. autofunction:: setup_validation
 
-.. autofunction:: to_object
+.. autofunction:: validate_config
+
+.. autoclass:: ValidationContext
+   :members:
+
+.. autofunction:: construct_override

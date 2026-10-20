@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 import io
 from pathlib import Path
 
+from hydra.core.global_hydra import GlobalHydra
 from hydra.errors import ConfigCompositionException, MissingConfigException
 from omegaconf import OmegaConf
 from omegaconf.errors import ValidationError
@@ -11,9 +12,11 @@ from hydra_qol import (
     CheckResult,
     check_configs,
     construct_override,
-    to_object,
+    setup_validation,
+    validate_config,
     validate_configs,
 )
+from hydra_qol.checking import _to_object
 
 from .example_config import (
     CONFIG_GROUPS,
@@ -255,6 +258,39 @@ def test_check_configs_passes_config_with_defaults(split_config_dir: Path) -> No
     assert out.getvalue().splitlines()[-1] == "All config files are valid."
 
 
+def test_validate_single_configs(config_dir: Path) -> None:
+    (config_dir / "model" / "typo.yaml").write_text(
+        "defaults:\n  - fcn\n\nnum_hiden: 3\n"
+    )
+    with setup_validation(
+        Config, CONFIG_GROUPS, schema_name="main_config", config_dir=config_dir
+    ) as context:
+        assert context.config_dir == config_dir.resolve()
+        relative = validate_config(Path("dm") / "celeba_male_smiling.yaml", context)
+        absolute = validate_config(
+            config_dir / "dm" / "celeba_male_smiling.yaml", context
+        )
+        broken = validate_config(Path("model") / "typo.yaml", context)
+        with pytest.raises(ValueError, match="is not in the subpath"):
+            validate_config(config_dir.parent / "elsewhere.yaml", context)
+
+    assert relative == absolute
+    assert relative.ok, relative.traceback
+    assert relative.path == Path("dm") / "celeba_male_smiling.yaml"
+    assert relative.cmdline_arg == "dm=celeba_male_smiling"
+    assert not broken.ok
+    assert broken.cmdline_arg == "model=typo"
+    assert isinstance(broken.error, ConfigCompositionException)
+
+
+def test_setup_validation_cleans_up(config_dir: Path) -> None:
+    with setup_validation(
+        Config, CONFIG_GROUPS, schema_name="main_config", config_dir=config_dir
+    ):
+        assert GlobalHydra.instance().is_initialized()
+    assert not GlobalHydra.instance().is_initialized()
+
+
 def test_malformed_config_class_raises(config_dir: Path) -> None:
     """Problems with the config classes themselves are raised, not recorded."""
     with pytest.raises(ValueError, match="should be a dataclass"):
@@ -288,13 +324,13 @@ def test_to_object_removes_hydra_node() -> None:
     cfg = OmegaConf.create(
         {"hydra": {"sweeper": {"params": {"seed": "1,2"}}}, "seed": 1}
     )
-    assert to_object(cfg) == {"seed": 1}
+    assert _to_object(cfg) == {"seed": 1}
 
     cfg = OmegaConf.create(
         {"hydra": {"sweeper": {"params": {"nope": "1,2"}}}, "seed": 1}
     )
     with pytest.raises(KeyError, match="nope"):
-        to_object(cfg)
+        _to_object(cfg)
 
     cfg = OmegaConf.create({"hydra": {"sweeper": {}}, "seed": 1})
-    assert to_object(cfg) == {"seed": 1}
+    assert _to_object(cfg) == {"seed": 1}
