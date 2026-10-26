@@ -12,5 +12,5 @@ The package has two parts:
 """
 
 from .checking import *
-from .formatting import *
+from .logging import *
 from .registration import *
