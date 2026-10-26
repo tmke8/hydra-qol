@@ -8,7 +8,7 @@ and value types against the registered dataclasses) and then instantiate the mai
 object from the result.
 """
 
-from collections.abc import Generator, Sequence, Set
+from collections.abc import Generator, Iterable, Sequence, Set
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,6 +82,8 @@ class ValidationContext:
     groups_in_defaults: frozenset[str]
     """The config groups that are in the defaults list of
     :attr:`config_with_defaults`."""
+    primary_config_dirs: frozenset[Path] = frozenset()
+    """Directories, relative to :attr:`config_dir`, whose files are primary configs."""
 
 
 @contextmanager
@@ -92,6 +94,7 @@ def setup_validation(
     schema_name: str,
     config_dir: Path | str,
     config_with_defaults: str | None = None,
+    primary_config_dirs: Iterable[Path | str] = (),
 ) -> Generator[ValidationContext, None, None]:
     """Prepare for checking individual YAML config files with :func:`validate_config`.
 
@@ -114,6 +117,8 @@ def setup_validation(
     :param config_with_defaults: Name of the primary config that the config-group
         options are composed on top of, if it differs from ``schema_name``; see
         :func:`validate_configs`.
+    :param primary_config_dirs: Subdirectories of ``config_dir`` that contain primary
+        configs; see :func:`validate_configs`.
     :returns: A context manager that yields the :class:`ValidationContext` to pass to
         :func:`validate_config`.
     :raises ValueError: If the config classes themselves are malformed (see
@@ -134,6 +139,7 @@ def setup_validation(
             config_dir=config_dir,
             config_with_defaults=config_with_defaults,
             groups_in_defaults=frozenset(base_cfg.hydra.runtime.choices),
+            primary_config_dirs=frozenset(Path(d) for d in primary_config_dirs),
         )
 
 
@@ -155,9 +161,12 @@ def validate_config(path: Path, context: ValidationContext) -> CheckResult:
     # For each YAML file, we construct an override like `group=sub/config`.
     name_parts = path.with_suffix("").parts
 
-    if len(name_parts) == 1:
-        # A config at the top level is a primary config.
-        primary_config = name_parts[0]
+    if len(name_parts) == 1 or any(
+        path.is_relative_to(d) for d in context.primary_config_dirs
+    ):
+        # A config at the top level or in one of `primary_config_dirs` is a primary
+        # config.
+        primary_config = "/".join(name_parts)
         overrides: list[str] = []
         cmdline_arg = f"--config-name {primary_config}"
     else:
@@ -193,6 +202,7 @@ def validate_configs(
     schema_name: str,
     config_dir: Path | str,
     config_with_defaults: str | None = None,
+    primary_config_dirs: Iterable[Path | str] = (),
 ) -> list[CheckResult]:
     """Compose and instantiate every YAML config file in ``config_dir``.
 
@@ -200,9 +210,10 @@ def validate_configs(
     :func:`~hydra_qol.register_hydra_config` (with ``replace=True``, so that it doesn't
     matter whether the main script already registered them). Then, every
     ``.yaml``/``.yml`` file below ``config_dir`` is composed with Hydra: files at the
-    top level of ``config_dir`` are treated as primary configs
-    (``--config-name <name>``), all other files are treated as options of a config
-    group (``<group>=<option>``) and are composed on top of ``config_with_defaults``.
+    top level of ``config_dir`` or below one of ``primary_config_dirs`` are treated as
+    primary configs (``--config-name <name>``), all other files are treated as options
+    of a config group (``<group>=<option>``) and are composed on top of
+    ``config_with_defaults``.
     Finally, the composed config is converted to an instance of ``main_cls`` with
     :func:`to_object`. Any exception raised along the way is recorded in the
     corresponding :class:`CheckResult`.
@@ -229,6 +240,11 @@ def validate_configs(
         the check fails. Groups listed in its defaults list are overridden with
         ``group=option``, all others are added with ``+group=option``. Defaults to
         ``schema_name``.
+    :param primary_config_dirs: Subdirectories of ``config_dir`` (relative to it, e.g.
+        ``"experiments"``) whose files, including those in nested subdirectories, are
+        primary configs that are selected with ``--config-name <dir>/<name>`` instead
+        of being config-group options. Like the top-level primary configs, they have
+        to inherit from the schema (e.g. ``/base_config`` in the defaults list).
     :returns: One :class:`CheckResult` per config file, sorted by path.
     :raises ValueError: If the config classes themselves are malformed (see
         :func:`~hydra_qol.register_hydra_config`).
@@ -239,6 +255,7 @@ def validate_configs(
         schema_name=schema_name,
         config_dir=config_dir,
         config_with_defaults=config_with_defaults,
+        primary_config_dirs=primary_config_dirs,
     ) as context:
         return [
             validate_config(path, context)
@@ -253,6 +270,7 @@ def check_configs(
     schema_name: str,
     config_dir: Path | str,
     config_with_defaults: str | None = None,
+    primary_config_dirs: Iterable[Path | str] = (),
     file: TextIO | None = None,
 ) -> int:
     """Check all YAML config files in ``config_dir`` and print a report.
@@ -276,6 +294,8 @@ def check_configs(
     :param config_with_defaults: Name of the primary config that the config-group
         options are composed on top of, if it differs from ``schema_name``; see
         :func:`validate_configs`.
+    :param primary_config_dirs: Subdirectories of ``config_dir`` that contain primary
+        configs; see :func:`validate_configs`.
     :param file: Where to print the report to; defaults to ``sys.stdout``.
     :returns: ``0`` if all config files are valid, ``1`` otherwise.
     """
@@ -286,6 +306,7 @@ def check_configs(
         schema_name=schema_name,
         config_dir=config_dir,
         config_with_defaults=config_with_defaults,
+        primary_config_dirs=primary_config_dirs,
     )
 
     failures = [result for result in results if not result.ok]

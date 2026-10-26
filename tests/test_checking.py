@@ -258,6 +258,114 @@ def test_check_configs_passes_config_with_defaults(split_config_dir: Path) -> No
     assert out.getvalue().splitlines()[-1] == "All config files are valid."
 
 
+@pytest.fixture
+def experiments_config_dir(split_config_dir: Path) -> Path:
+    """A config directory with primary configs in (nested) subdirectories."""
+    (split_config_dir / "experiments" / "celeba").mkdir(parents=True)
+    # These configs select options for groups that are already in the defaults list of
+    # `default_config`, so they can't be composed as config-group options.
+    (split_config_dir / "experiments" / "cnn.yaml").write_text(
+        "# @package _global_\n"
+        "defaults:\n  - /base_config\n  - /dm: cmnist\n  - /model: cnn\n\nseed: 3\n"
+    )
+    (split_config_dir / "experiments" / "celeba" / "fcn.yaml").write_text(
+        "# @package _global_\n"
+        "defaults:\n  - /base_config\n  - /dm: celeba\n  - /model: fcn\n"
+    )
+    return split_config_dir
+
+
+EXPECTED_EXPERIMENTS_CMDLINE_ARGS = {
+    "default_config.yaml": "--config-name default_config",
+    "experiments/celeba/fcn.yaml": "--config-name experiments/celeba/fcn",
+    "experiments/cnn.yaml": "--config-name experiments/cnn",
+    "hydra/sweeper/grid.yaml": "hydra/sweeper=grid",
+    "model/small.yaml": "model=small",
+    "other_run.yaml": "--config-name other_run",
+}
+
+
+@pytest.mark.parametrize(
+    "primary_config_dirs", [["experiments"], [Path("experiments")]]
+)
+def test_primary_config_dirs(
+    experiments_config_dir: Path, primary_config_dirs: list[str | Path]
+) -> None:
+    results = validate_configs(
+        SchemaOnlyConfig,
+        CONFIG_GROUPS,
+        schema_name="base_config",
+        config_dir=experiments_config_dir,
+        config_with_defaults="default_config",
+        primary_config_dirs=primary_config_dirs,
+    )
+    assert {
+        r.path.as_posix(): r.cmdline_arg for r in results
+    } == EXPECTED_EXPERIMENTS_CMDLINE_ARGS
+    for result in results:
+        assert result.ok, result.traceback
+
+
+def test_without_primary_config_dirs(experiments_config_dir: Path) -> None:
+    """Without `primary_config_dirs`, the files are composed as config-group options."""
+    results = validate_configs(
+        SchemaOnlyConfig,
+        CONFIG_GROUPS,
+        schema_name="base_config",
+        config_dir=experiments_config_dir,
+        config_with_defaults="default_config",
+    )
+    failures = {r.path.as_posix(): r for r in results if not r.ok}
+    assert set(failures) == {"experiments/cnn.yaml", "experiments/celeba/fcn.yaml"}
+    assert failures["experiments/cnn.yaml"].cmdline_arg == "+experiments=cnn"
+    assert isinstance(
+        failures["experiments/cnn.yaml"].error, ConfigCompositionException
+    )
+
+
+def test_primary_config_dirs_single_config(experiments_config_dir: Path) -> None:
+    (experiments_config_dir / "experiments" / "untyped.yaml").write_text("seed: 1\n")
+    with setup_validation(
+        SchemaOnlyConfig,
+        CONFIG_GROUPS,
+        schema_name="base_config",
+        config_dir=experiments_config_dir,
+        config_with_defaults="default_config",
+        primary_config_dirs=["experiments"],
+    ) as context:
+        assert context.primary_config_dirs == frozenset({Path("experiments")})
+        nested = validate_config(Path("experiments/celeba/fcn.yaml"), context)
+        untyped = validate_config(
+            experiments_config_dir / "experiments" / "untyped.yaml", context
+        )
+        option = validate_config(Path("model/small.yaml"), context)
+
+    assert nested.ok, nested.traceback
+    assert nested.cmdline_arg == "--config-name experiments/celeba/fcn"
+    # Primary configs in subdirectories also have to inherit from the schema.
+    assert untyped.cmdline_arg == "--config-name experiments/untyped"
+    assert isinstance(untyped.error, TypeError)
+    assert option.ok, option.traceback
+    assert option.cmdline_arg == "model=small"
+
+
+def test_check_configs_passes_primary_config_dirs(experiments_config_dir: Path) -> None:
+    out = io.StringIO()
+    exit_code = check_configs(
+        SchemaOnlyConfig,
+        CONFIG_GROUPS,
+        schema_name="base_config",
+        config_dir=experiments_config_dir,
+        config_with_defaults="default_config",
+        primary_config_dirs=["experiments"],
+        file=out,
+    )
+    assert exit_code == 0, out.getvalue()
+    assert (
+        "OK    experiments/cnn.yaml (--config-name experiments/cnn)" in out.getvalue()
+    )
+
+
 def test_validate_single_configs(config_dir: Path) -> None:
     (config_dir / "model" / "typo.yaml").write_text(
         "defaults:\n  - fcn\n\nnum_hiden: 3\n"

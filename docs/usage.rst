@@ -207,7 +207,8 @@ file. :func:`~hydra_qol.check_configs` catches such problems without running any
 experiment: it composes every YAML file below the config directory and instantiates
 ``Config`` from the result.
 
-* Top-level files are composed as primary configs (``--config-name <name>``).
+* Top-level files are composed as primary configs (``--config-name <name>``), as are
+  files below the subdirectories passed as ``primary_config_dirs`` (see below).
 * Files in subdirectories are composed as config-group options on top of the primary
   config ``config_with_defaults``, which defaults to the schema (``<group>=<option>``,
   or ``+<group>=<option>`` if the group is not in its defaults list). Each option is
@@ -258,6 +259,34 @@ top of a primary config that selects an option for every group:
        CONFIG_GROUPS,
        schema_name="base_config",
        config_with_defaults="default_config",
+       config_dir="configs",
+   )
+
+Primary configs don't have to be at the top level. If, for example, you keep
+experiment configs in ``configs/experiments/`` and run them with
+``--config-name experiments/<name>``, pass that directory as ``primary_config_dirs``;
+otherwise its files would be composed as options of an ``experiments`` group. Files in
+nested subdirectories (``experiments/cmnist/cnn.yaml``) count as well. Such a config
+needs ``# @package _global_`` at the top (otherwise Hydra puts its content under an
+``experiments`` key) and refers to the schema and the groups with absolute paths:
+
+.. code-block:: yaml
+
+   # configs/experiments/cmnist_cnn.yaml
+   # @package _global_
+   defaults:
+     - /base_config
+     - /dm: cmnist
+     - /model: cnn
+
+.. code-block:: python
+
+   check_configs(
+       Config,
+       CONFIG_GROUPS,
+       schema_name="base_config",
+       config_with_defaults="default_config",
+       primary_config_dirs=["experiments"],
        config_dir="configs",
    )
 
