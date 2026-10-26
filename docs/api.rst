@@ -13,6 +13,8 @@ Logging
 
 .. autofunction:: prepare_for_logging
 
+.. autofunction:: reconstruct_cmd
+
 Checking config files
 ---------------------
 

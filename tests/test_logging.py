@@ -1,13 +1,16 @@
+from collections.abc import Callable, Iterator
 import dataclasses
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
+import shlex
 
 from hydra import compose, initialize
-from omegaconf import MISSING, MissingMandatoryValue, OmegaConf
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import MISSING, DictConfig, MissingMandatoryValue, OmegaConf
 import pytest
 
-from hydra_qol import prepare_for_logging, register_hydra_config
+from hydra_qol import prepare_for_logging, reconstruct_cmd, register_hydra_config
 
 from .example_config import CONFIG_GROUPS, Config
 
@@ -84,3 +87,48 @@ def test_composed_config_shows_chosen_option() -> None:
         "activation": "GELU",
     }
     assert logging_dict["run_name"] == "seed42"
+
+
+@pytest.fixture
+def hydra_config_set() -> Iterator[Callable[[DictConfig], None]]:
+    """Set the global ``HydraConfig`` (as ``@hydra.main()`` would) and unset it after."""
+    yield lambda cfg: HydraConfig.instance().set_config(cfg)
+    HydraConfig.instance().cfg = None
+
+
+def test_reconstruct_cmd(hydra_config_set: Callable[[DictConfig], None]) -> None:
+    register_hydra_config(
+        Config, CONFIG_GROUPS, schema_name="main_config", replace=True
+    )
+
+    with initialize(job_name="train"):
+        cfg = compose(
+            "main_config",
+            overrides=["model=cnn", "seed=3", 'run_name="my run"'],
+            return_hydra_config=True,
+        )
+    hydra_config_set(cfg)
+
+    cmd = reconstruct_cmd()
+    assert cmd == """train.py model=cnn seed=3 'run_name="my run"'"""
+    # The command can be passed to a shell and gives back the original overrides.
+    assert shlex.split(cmd) == ["train.py", "model=cnn", "seed=3", 'run_name="my run"']
+
+
+def test_reconstruct_cmd_without_overrides(
+    hydra_config_set: Callable[[DictConfig], None],
+) -> None:
+    register_hydra_config(
+        Config, CONFIG_GROUPS, schema_name="main_config", replace=True
+    )
+
+    with initialize(job_name="train"):
+        cfg = compose("main_config", return_hydra_config=True)
+    hydra_config_set(cfg)
+
+    assert reconstruct_cmd() == "train.py"
+
+
+def test_reconstruct_cmd_outside_hydra() -> None:
+    with pytest.raises(ValueError, match="HydraConfig was not set"):
+        reconstruct_cmd()
